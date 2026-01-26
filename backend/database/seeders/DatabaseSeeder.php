@@ -13,11 +13,23 @@ class DatabaseSeeder extends Seeder
      */
     public function run(): void
     {
-        // User::factory(10)->create();
+        $this->call([
+            IngredientSeeder::class,
+        ]);
 
+        // Create test user
         User::factory()->create([
             'name' => 'Test User',
             'email' => 'test@example.com',
+            'tier' => 'free',
+        ]);
+
+        // Create premium test user
+        User::factory()->create([
+            'name' => 'Premium User',
+            'email' => 'premium@example.com',
+            'tier' => 'premium',
+            'premium_until' => now()->addYear(),
         ]);
     }
 }

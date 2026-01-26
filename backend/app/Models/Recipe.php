@@ -39,4 +39,20 @@ class Recipe extends Model
                     ->withPivot('position', 'notes')
                     ->withTimestamps();
     }
+
+    /**
+     * Get average rating.
+     */
+    public function getAverageRatingAttribute(): float
+    {
+        return round($this->ratings()->avg('star_rating') ?? 0, 1);
+    }
+
+    /**
+     * Get rating count.
+     */
+    public function getRatingCountAttribute(): int
+    {
+        return $this->ratings()->count();
+    }
 }

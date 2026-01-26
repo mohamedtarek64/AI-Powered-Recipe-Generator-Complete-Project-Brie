@@ -7,7 +7,7 @@ use Illuminate\Database\Eloquent\Model;
 class ShoppingListItem extends Model
 {
     protected $fillable = [
-        'shopping_list_id', 'ingredient_id', 'custom_item_text', 'quantity', 'unit', 'is_checked', 'category'
+        'shopping_list_id', 'ingredient_id', 'custom_item_text', 'quantity', 'unit', 'is_checked', 'store_category'
     ];
 
     protected $casts = [

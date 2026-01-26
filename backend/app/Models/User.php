@@ -92,4 +92,30 @@ class User extends Authenticatable
     {
         return $this->hasMany(GenerationLog::class);
     }
+
+    /**
+     * Check if user has premium subscription.
+     */
+    public function isPremium(): bool
+    {
+        return $this->tier === 'premium' &&
+               ($this->premium_until === null || $this->premium_until->isFuture());
+    }
+
+    /**
+     * Get remaining daily generations.
+     */
+    public function getRemainingGenerations(): int
+    {
+        if ($this->isPremium()) {
+            return -1; // Unlimited
+        }
+
+        $todayCount = GenerationLog::where('user_id', $this->id)
+            ->whereDate('created_at', today())
+            ->where('status', 'success')
+            ->count();
+
+        return max(0, 10 - $todayCount);
+    }
 }
