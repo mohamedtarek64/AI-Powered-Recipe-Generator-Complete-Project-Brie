@@ -15,7 +15,7 @@ interface ShoppingListItem {
     quantity: number;
     unit: string;
     is_checked: boolean;
-    category: string | null;
+    store_category: string | null;
     ingredient?: {
         name: string;
     }
@@ -28,17 +28,22 @@ interface ShoppingList {
     items: ShoppingListItem[];
 }
 
+interface GroupedItems {
+    [key: string]: ShoppingListItem[];
+}
+
 const vueRoute = useRoute();
 const router = useRouter();
 
 const list = ref<ShoppingList | null>(null);
+const groupedItems = ref<GroupedItems>({});
 const loading = ref(true);
 
 const newItemForm = ref({
     custom_item_text: '',
     quantity: 1,
     unit: 'pcs',
-    category: 'Groceries',
+    store_category: 'Other',
 });
 const submitting = ref(false);
 
@@ -47,7 +52,8 @@ const fetchList = async () => {
     try {
         const id = vueRoute.params.id;
         const response = await axios.get(`/shopping-lists/${id}`);
-        list.value = response.data;
+        list.value = response.data.list || response.data;
+        groupedItems.value = response.data.groupedItems || {};
     } catch (error) {
         console.error('Failed to fetch shopping list:', error);
         // Mock data fallback
@@ -71,7 +77,7 @@ onMounted(fetchList);
 
 const addItem = async () => {
     if (!newItemForm.value.custom_item_text || !list.value) return;
-    
+
     submitting.value = true;
     try {
         const response = await axios.post(`/shopping-lists/${list.value.id}/items`, newItemForm.value);
@@ -86,7 +92,7 @@ const addItem = async () => {
             quantity: newItemForm.value.quantity,
             unit: newItemForm.value.unit,
             is_checked: false,
-            category: newItemForm.value.category
+            store_category: newItemForm.value.store_category
         };
         list.value?.items.push(newItem);
         newItemForm.value = { custom_item_text: '', quantity: 1, unit: 'pcs', category: 'Groceries' };
@@ -118,7 +124,7 @@ const removeItem = async (item: ShoppingListItem) => {
 
 const deleteList = async () => {
     if (!list.value || !confirm('Delete this entire list?')) return;
-    
+
     try {
         await axios.delete(`/shopping-lists/${list.value.id}`);
         router.push('/shopping-lists');
@@ -128,7 +134,7 @@ const deleteList = async () => {
     }
 };
 
-const categories = ['Groceries', 'Produce', 'Meat', 'Dairy', 'Bakery', 'Frozen', 'Spices'];
+const categories = ['Produce', 'Meat', 'Dairy', 'Grains', 'Condiments', 'Other'];
 
 const breadcrumbs = [
     { title: 'Dashboard', href: route('dashboard') },
@@ -140,7 +146,7 @@ const breadcrumbs = [
 <template>
     <AppLayout :breadcrumbs="breadcrumbs">
         <Head :title="list?.name || 'Shopping List'" />
-        
+
         <!-- Loading State -->
         <div v-if="loading" class="max-w-4xl mx-auto py-12 px-6">
             <div class="h-16 glass rounded-xl animate-pulse mb-8"></div>
@@ -182,7 +188,7 @@ const breadcrumbs = [
                                 <Input type="number" v-model.number="newItemForm.quantity" class="bg-white/5 border-white/10 text-white rounded-xl h-11" />
                                 <Input v-model="newItemForm.unit" placeholder="unit" class="bg-white/5 border-white/10 text-white rounded-xl h-11" />
                             </div>
-                            <select v-model="newItemForm.category" class="w-full bg-white/5 border-white/10 text-white rounded-xl p-3 outline-none focus:border-orange-500/50 transition-colors text-sm">
+                            <select v-model="newItemForm.store_category" class="w-full bg-white/5 border-white/10 text-white rounded-xl p-3 outline-none focus:border-orange-500/50 transition-colors text-sm">
                                 <option v-for="cat in categories" :key="cat">{{ cat }}</option>
                             </select>
                             <Button @click="addItem" :disabled="!newItemForm.custom_item_text || submitting" class="w-full btn-premium h-12">
@@ -195,34 +201,44 @@ const breadcrumbs = [
 
                 <!-- Items List -->
                 <div class="md:col-span-2">
-                    <div v-if="list.items.length > 0" class="space-y-4">
-                        <div v-for="item in list.items" :key="item.id" 
-                            class="glass p-4 rounded-2xl flex items-center justify-between group transition-all"
-                            :class="{'opacity-50': item.is_checked}"
-                        >
-                            <div class="flex items-center gap-4">
-                                <button @click="toggleItem(item)" 
-                                    :class="[
-                                        'w-6 h-6 rounded-lg border-2 flex items-center justify-center transition-all',
-                                        item.is_checked ? 'bg-green-500 border-green-500 text-black' : 'border-white/20 hover:border-orange-500'
-                                    ]"
+                    <div v-if="list.items.length > 0" class="space-y-6">
+                        <!-- Grouped by Store Category -->
+                        <div v-for="(items, category) in groupedItems" :key="category" class="space-y-3">
+                            <h3 class="text-sm font-bold text-gray-400 uppercase tracking-wider flex items-center gap-2">
+                                <span class="w-1 h-1 bg-orange-500 rounded-full"></span>
+                                {{ category || 'Other' }}
+                            </h3>
+                            <div class="space-y-2">
+                                <div v-for="item in items" :key="item.id"
+                                    class="glass p-4 rounded-2xl flex items-center justify-between group transition-all"
+                                    :class="{'opacity-50': item.is_checked}"
                                 >
-                                    <span v-if="item.is_checked">✓</span>
-                                </button>
-                                <div>
-                                    <p :class="['text-white font-medium', {'line-through text-gray-500': item.is_checked}]">
-                                        {{ item.ingredient ? item.ingredient.name : item.custom_item_text }}
-                                    </p>
-                                    <p class="text-xs text-gray-500">{{ item.quantity }} {{ item.unit }} • {{ item.category }}</p>
+                                    <div class="flex items-center gap-4">
+                                        <button @click="toggleItem(item)"
+                                            :class="[
+                                                'w-6 h-6 rounded-lg border-2 flex items-center justify-center transition-all',
+                                                item.is_checked ? 'bg-green-500 border-green-500 text-black' : 'border-white/20 hover:border-orange-500'
+                                            ]"
+                                        >
+                                            <span v-if="item.is_checked">✓</span>
+                                        </button>
+                                        <div>
+                                            <p :class="['text-white font-medium', {'line-through text-gray-500': item.is_checked}]">
+                                                {{ item.ingredient ? item.ingredient.name : item.custom_item_text }}
+                                            </p>
+                                            <p class="text-xs text-gray-500">{{ item.quantity }} {{ item.unit }}</p>
+                                        </div>
+                                    </div>
+                                    <button @click="removeItem(item)" class="text-gray-600 hover:text-rose-500 opacity-0 group-hover:opacity-100 transition-all">
+                                        <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/></svg>
+                                    </button>
                                 </div>
                             </div>
-                            <button @click="removeItem(item)" class="text-gray-600 hover:text-rose-500 opacity-0 group-hover:opacity-100 transition-all">
-                                <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/></svg>
-                            </button>
                         </div>
                     </div>
-                    
+
                     <div v-else class="text-center py-24 glass rounded-3xl border-dashed border-white/5">
+                        <div class="text-6xl mb-4">🛒</div>
                         <p class="text-gray-500 italic">Your list is empty...</p>
                     </div>
                 </div>

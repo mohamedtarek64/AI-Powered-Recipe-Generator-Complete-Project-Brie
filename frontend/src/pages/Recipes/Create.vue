@@ -12,6 +12,9 @@ const currentIngredient = ref('');
 const generating = ref(false);
 const generatedRecipe = ref<any>(null);
 const error = ref('');
+const uploadingImage = ref(false);
+const detectedIngredients = ref<Array<{name: string, confidence: number}>>([]);
+const imagePreview = ref<string | null>(null);
 
 const form = ref({
     cuisine: 'Any',
@@ -32,13 +35,84 @@ const removeIngredient = (index: number) => {
     ingredients.value.splice(index, 1);
 };
 
+const handleImageUpload = async (event: Event) => {
+    const target = event.target as HTMLInputElement;
+    const file = target.files?.[0];
+
+    if (!file) return;
+
+    // Validate file type
+    if (!file.type.startsWith('image/')) {
+        error.value = 'Please upload an image file.';
+        return;
+    }
+
+    // Validate file size (10MB max)
+    if (file.size > 10 * 1024 * 1024) {
+        error.value = 'Image size must be less than 10MB.';
+        return;
+    }
+
+    // Create preview
+    const reader = new FileReader();
+    reader.onload = (e) => {
+        imagePreview.value = e.target?.result as string;
+    };
+    reader.readAsDataURL(file);
+
+    // Upload and detect ingredients
+    uploadingImage.value = true;
+    error.value = '';
+    detectedIngredients.value = [];
+
+    try {
+        const formData = new FormData();
+        formData.append('image', file);
+
+        const axiosPlain = (await import('axios')).default;
+        const response = await axiosPlain.post('/recipes/detect-ingredients', formData, {
+            headers: {
+                'Content-Type': 'multipart/form-data',
+                'X-Requested-With': 'XMLHttpRequest',
+                'Accept': 'application/json',
+            },
+        });
+
+        if (response.data.ingredients && response.data.ingredients.length > 0) {
+            detectedIngredients.value = response.data.ingredients;
+        } else {
+            error.value = 'No ingredients detected. Please try a clearer photo or add ingredients manually.';
+        }
+    } catch (err: any) {
+        console.error('Image upload failed:', err);
+        error.value = err.response?.data?.error || 'Failed to process image. Please try again.';
+    } finally {
+        uploadingImage.value = false;
+    }
+};
+
+const addDetectedIngredient = (name: string) => {
+    if (!ingredients.value.includes(name)) {
+        ingredients.value.push(name);
+    }
+};
+
+const clearImage = () => {
+    imagePreview.value = null;
+    detectedIngredients.value = [];
+    const fileInput = document.getElementById('image-upload') as HTMLInputElement;
+    if (fileInput) {
+        fileInput.value = '';
+    }
+};
+
 const submit = async () => {
     if (ingredients.value.length === 0) return;
-    
+
     generating.value = true;
     error.value = '';
     generatedRecipe.value = null;
-    
+
     try {
         // Using axios directly (not the configured instance) since /generate is a web route
         const axiosPlain = (await import('axios')).default;
@@ -51,7 +125,7 @@ const submit = async () => {
                 'Accept': 'application/json',
             }
         });
-        
+
         if (response.data.recipe) {
             generatedRecipe.value = response.data.recipe;
             // Optional: Redirect to recipe page
@@ -74,7 +148,7 @@ const breadcrumbs = [
 <template>
     <AppLayout :breadcrumbs="breadcrumbs">
         <Head title="Generate Recipe" />
-        
+
         <div class="max-w-4xl mx-auto py-12 px-6">
             <div class="mb-12 text-center">
                 <h1 class="text-4xl font-bold text-white mb-4">Magic <span class="text-gradient">Recipe Generator</span></h1>
@@ -93,7 +167,7 @@ const breadcrumbs = [
                     <span class="px-3 py-1 bg-green-500/20 text-green-400 rounded-full text-sm font-medium">✓ Generated</span>
                 </div>
                 <p class="text-gray-400 mb-4">{{ generatedRecipe.description }}</p>
-                
+
                 <div class="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
                     <div class="text-center p-3 bg-white/5 rounded-xl">
                         <div class="text-2xl mb-1">⏱️</div>
@@ -175,11 +249,11 @@ const breadcrumbs = [
                     <h2 class="text-xl font-bold text-white mb-6 flex items-center gap-2">
                         <span>🥗</span> Add Ingredients
                     </h2>
-                    
+
                     <div class="flex gap-2 mb-6">
-                        <Input 
-                            v-model="currentIngredient" 
-                            placeholder="e.g. Chicken, Tomato, Basil" 
+                        <Input
+                            v-model="currentIngredient"
+                            placeholder="e.g. Chicken, Tomato, Basil"
                             @keyup.enter="addIngredient"
                             class="bg-white/5 border-white/10 text-white placeholder:text-gray-500 rounded-xl"
                         />
@@ -187,7 +261,7 @@ const breadcrumbs = [
                     </div>
 
                     <div class="flex flex-wrap gap-2 min-h-[100px] p-4 bg-black/20 rounded-2xl border border-white/5">
-                        <span v-for="(item, index) in ingredients" :key="index" 
+                        <span v-for="(item, index) in ingredients" :key="index"
                             class="px-4 py-2 bg-orange-500/20 text-orange-400 border border-orange-500/30 rounded-xl flex items-center gap-2 animate-in fade-in zoom-in duration-300">
                             {{ item }}
                             <button @click="removeIngredient(index)" class="hover:text-white transition-colors">×</button>
@@ -196,11 +270,65 @@ const breadcrumbs = [
                     </div>
 
                     <div class="mt-8">
-                        <div class="flex items-center gap-4 p-4 border border-dashed border-white/10 rounded-2xl hover:bg-white/5 transition-colors cursor-pointer group">
+                        <input
+                            type="file"
+                            accept="image/*"
+                            @change="handleImageUpload"
+                            ref="fileInput"
+                            class="hidden"
+                            id="image-upload"
+                        />
+                        <label
+                            for="image-upload"
+                            class="flex items-center gap-4 p-4 border border-dashed border-white/10 rounded-2xl hover:bg-white/5 transition-colors cursor-pointer group"
+                        >
                             <div class="text-3xl group-hover:scale-110 transition-transform">📸</div>
                             <div>
                                 <h4 class="text-sm font-bold text-white">Upload a photo</h4>
                                 <p class="text-xs text-gray-400">AI will detect ingredients for you</p>
+                            </div>
+                        </label>
+
+                        <!-- Image Preview -->
+                        <div v-if="imagePreview" class="mt-4 relative">
+                            <img :src="imagePreview" alt="Uploaded image" class="w-full h-48 object-cover rounded-xl" />
+                            <button
+                                @click="clearImage"
+                                class="absolute top-2 right-2 bg-red-500/80 hover:bg-red-500 text-white rounded-full p-2"
+                            >
+                                ×
+                            </button>
+                        </div>
+
+                        <!-- Detected Ingredients -->
+                        <div v-if="detectedIngredients.length > 0" class="mt-4 p-4 bg-green-500/10 border border-green-500/30 rounded-xl">
+                            <h4 class="text-sm font-bold text-green-400 mb-2">✨ Detected Ingredients:</h4>
+                            <div class="flex flex-wrap gap-2">
+                                <span
+                                    v-for="(item, index) in detectedIngredients"
+                                    :key="index"
+                                    class="px-3 py-1 bg-green-500/20 text-green-400 border border-green-500/30 rounded-lg text-sm flex items-center gap-2"
+                                >
+                                    {{ item.name }}
+                                    <span class="text-xs opacity-70">({{ Math.round(item.confidence * 100) }}%)</span>
+                                    <button
+                                        @click="addDetectedIngredient(item.name)"
+                                        class="hover:text-white transition-colors"
+                                    >
+                                        +
+                                    </button>
+                                </span>
+                            </div>
+                        </div>
+
+                        <!-- Uploading State -->
+                        <div v-if="uploadingImage" class="mt-4 p-4 bg-blue-500/10 border border-blue-500/30 rounded-xl text-center">
+                            <div class="flex items-center justify-center gap-2 text-blue-400">
+                                <svg class="animate-spin h-5 w-5" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                                    <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                                    <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                                </svg>
+                                Analyzing image...
                             </div>
                         </div>
                     </div>
@@ -253,8 +381,8 @@ const breadcrumbs = [
                             </div>
                         </div>
 
-                        <Button 
-                            @click="submit" 
+                        <Button
+                            @click="submit"
                             :disabled="ingredients.length === 0 || generating"
                             class="w-full btn-premium mt-8 h-14"
                         >

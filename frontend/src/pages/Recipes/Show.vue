@@ -3,6 +3,7 @@ import { Head, Link } from '@inertiajs/vue3';
 import AppLayout from '@/layouts/AppLayout.vue';
 import { ref, onMounted, computed } from 'vue';
 import { Button } from '@/components/ui/button';
+import RecipeModifier from '@/components/Recipes/RecipeModifier.vue';
 import axios from '@/lib/axios';
 import { route } from '@/lib/route';
 import { useRoute } from 'vue-router';
@@ -41,6 +42,10 @@ const loading = ref(true);
 const currentServings = ref(2);
 const completedSteps = ref<number[]>([]);
 const collectedIngredients = ref<number[]>([]);
+const saving = ref(false);
+const userRating = ref(0);
+const ratingRecipe = ref(false);
+const window = globalThis;
 
 const fetchRecipe = async () => {
     loading.value = true;
@@ -119,11 +124,131 @@ const breadcrumbs = computed(() => [
     { title: 'Recipes', href: route('recipes.index') },
     { title: recipe.value?.title || 'Recipe', href: '#' },
 ]);
+
+const saveRecipe = async () => {
+    if (!recipe.value) return;
+
+    saving.value = true;
+    try {
+        const response = await axios.post(`/recipes/${recipe.value.slug}/save`);
+        alert('Recipe saved successfully!');
+    } catch (error: any) {
+        if (error.response?.status === 401) {
+            alert('Please sign in to save recipes.');
+        } else {
+            alert('Failed to save recipe. Please try again.');
+        }
+    } finally {
+        saving.value = false;
+    }
+};
+
+const shareRecipe = async () => {
+    if (!recipe.value) return;
+
+    try {
+        const response = await axios.get(`/recipes/${recipe.value.slug}/share`);
+        const shareUrl = response.data.url;
+
+        if (navigator.share) {
+            await navigator.share({
+                title: response.data.title,
+                text: response.data.description,
+                url: shareUrl,
+            });
+        } else {
+            await navigator.clipboard.writeText(shareUrl);
+            alert('Recipe link copied to clipboard!');
+        }
+    } catch (error) {
+        console.error('Failed to share:', error);
+    }
+};
+
+const generateShoppingList = async () => {
+    if (!recipe.value) return;
+
+    try {
+        const response = await axios.post(`/recipes/${recipe.value.slug}/shopping-list`);
+        if (response.data.redirect) {
+            window.location.href = response.data.redirect;
+        }
+    } catch (error: any) {
+        if (error.response?.status === 401) {
+            alert('Please sign in to create shopping lists.');
+        } else {
+            alert('Failed to create shopping list. Please try again.');
+        }
+    }
+};
+
+const submitRating = async () => {
+    if (!recipe.value || userRating.value === 0) return;
+
+    ratingRecipe.value = true;
+    try {
+        await axios.post(`/recipes/${recipe.value.slug}/rate`, {
+            rating: userRating.value,
+        });
+        alert('Thank you for rating this recipe!');
+        userRating.value = 0;
+    } catch (error: any) {
+        if (error.response?.status === 401) {
+            alert('Please sign in to rate recipes.');
+        } else {
+            alert('Failed to submit rating. Please try again.');
+        }
+    } finally {
+        ratingRecipe.value = false;
+    }
+};
 </script>
 
 <template>
     <AppLayout :breadcrumbs="breadcrumbs">
-        <Head :title="recipe?.title || 'Recipe'" />
+        <Head :title="recipe?.title || 'Recipe'">
+            <meta name="description" :content="recipe?.description || 'Delicious AI-generated recipe'" />
+            <meta property="og:title" :content="recipe?.title || 'Recipe'" />
+            <meta property="og:description" :content="recipe?.description || 'Delicious AI-generated recipe'" />
+            <meta property="og:type" content="article" />
+            <meta property="og:url" :content="`${typeof window !== 'undefined' ? window.location.origin : ''}/recipes/${recipe?.slug}`" />
+            <meta property="og:image" :content="recipe?.image || `${typeof window !== 'undefined' ? window.location.origin : ''}/images/default-recipe.jpg`" />
+            <meta name="twitter:card" content="summary_large_image" />
+            <meta name="twitter:title" :content="recipe?.title || 'Recipe'" />
+            <meta name="twitter:description" :content="recipe?.description || 'Delicious AI-generated recipe'" />
+
+            <!-- JSON-LD Schema for Recipe -->
+            <script type="application/ld+json" v-if="recipe">
+                {{ JSON.stringify({
+                    "@context": "https://schema.org/",
+                    "@type": "Recipe",
+                    "name": recipe.title,
+                    "description": recipe.description,
+                    "image": recipe.image || null,
+                    "author": {
+                        "@type": "Person",
+                        "name": recipe.user?.name || "AI Chef"
+                    },
+                    "prepTime": `PT${recipe.prep_time}M`,
+                    "cookTime": `PT${recipe.cook_time}M`,
+                    "totalTime": `PT${recipe.prep_time + recipe.cook_time}M`,
+                    "recipeYield": recipe.servings,
+                    "recipeIngredient": recipe.ingredients.map((ing: any) => `${ing.amount} ${ing.unit} ${ing.item}`),
+                    "recipeInstructions": recipe.instructions.map((step: string, index: number) => ({
+                        "@type": "HowToStep",
+                        "position": index + 1,
+                        "text": step
+                    })),
+                    "nutrition": recipe.nutritional_info ? {
+                        "@type": "NutritionInformation",
+                        "calories": recipe.nutritional_info.calories,
+                        "proteinContent": `${recipe.nutritional_info.protein}g`,
+                        "carbohydrateContent": `${recipe.nutritional_info.carbs}g`,
+                        "fatContent": `${recipe.nutritional_info.fat}g`
+                    } : null
+                }) }}
+            </script>
+        </Head>
 
         <!-- Loading State -->
         <div v-if="loading" class="max-w-6xl mx-auto py-12 px-6">
@@ -178,9 +303,9 @@ const breadcrumbs = computed(() => [
                                 <button @click="currentServings++" class="w-8 h-8 flex items-center justify-center rounded-lg hover:bg-white/10 text-white transition-colors">+</button>
                             </div>
                         </div>
-                        
+
                         <ul class="grid grid-cols-1 md:grid-cols-2 gap-4">
-                            <li v-for="(ing, index) in recipe.ingredients" :key="index" 
+                            <li v-for="(ing, index) in recipe.ingredients" :key="index"
                                 @click="toggleIngredient(index)"
                                 :class="[
                                     'p-4 rounded-2xl border transition-all cursor-pointer flex items-center gap-4',
@@ -206,9 +331,9 @@ const breadcrumbs = computed(() => [
                         <h2 class="text-2xl font-bold text-white mb-8 flex items-center gap-3">
                             <span>👩‍🍳</span> Cooking Steps
                         </h2>
-                        
+
                         <div class="space-y-8">
-                            <div v-for="(step, index) in recipe.instructions" :key="index" 
+                            <div v-for="(step, index) in recipe.instructions" :key="index"
                                 @click="toggleStep(index)"
                                 :class="[
                                     'relative pl-12 transition-all cursor-pointer group',
@@ -284,16 +409,74 @@ const breadcrumbs = computed(() => [
 
                     <!-- Actions -->
                     <div class="space-y-3">
-                        <Button class="w-full btn-premium h-14">
-                            💖 Save to Favorites
+                        <Button
+                            @click="saveRecipe"
+                            class="w-full btn-premium h-14"
+                            :disabled="saving"
+                        >
+                            <span v-if="saving">Saving...</span>
+                            <span v-else>💖 Save to Favorites</span>
                         </Button>
-                        <Button variant="outline" class="w-full h-14 bg-white/5 border-white/10 text-white rounded-2xl hover:bg-white/10">
-                            📥 Download PDF
-                        </Button>
-                        <Button variant="outline" class="w-full h-14 bg-white/5 border-white/10 text-white rounded-2xl hover:bg-white/10">
+                        <a :href="`/recipes/${recipe.slug}/download`" target="_blank">
+                            <Button variant="outline" class="w-full h-14 bg-white/5 border-white/10 text-white rounded-2xl hover:bg-white/10">
+                                📥 Download PDF
+                            </Button>
+                        </a>
+                        <Button
+                            @click="shareRecipe"
+                            variant="outline"
+                            class="w-full h-14 bg-white/5 border-white/10 text-white rounded-2xl hover:bg-white/10"
+                        >
                             🔗 Share Recipe
                         </Button>
+                        <Button
+                            @click="generateShoppingList"
+                            variant="outline"
+                            class="w-full h-14 bg-white/5 border-white/10 text-white rounded-2xl hover:bg-white/10"
+                        >
+                            🛒 Create Shopping List
+                        </Button>
                     </div>
+
+                    <!-- Rating Section -->
+                    <div class="glass p-8 rounded-3xl">
+                        <h3 class="text-lg font-bold text-white mb-4">⭐ Rate this Recipe</h3>
+                        <div class="flex items-center gap-2 mb-4">
+                            <button
+                                v-for="star in 5"
+                                :key="star"
+                                @click="userRating = star"
+                                class="text-2xl transition-transform hover:scale-110"
+                            >
+                                <span :class="star <= userRating ? 'text-yellow-400' : 'text-gray-600'">★</span>
+                            </button>
+                            <span v-if="userRating > 0" class="text-sm text-gray-400 ml-2">{{ userRating }}/5</span>
+                        </div>
+                        <Button
+                            v-if="userRating > 0"
+                            @click="submitRating"
+                            class="w-full"
+                            :disabled="ratingRecipe"
+                        >
+                            <span v-if="ratingRecipe">Submitting...</span>
+                            <span v-else>Submit Rating</span>
+                        </Button>
+                    </div>
+
+                    <!-- Recipe Modifier (Premium) -->
+                    <RecipeModifier
+                        v-if="recipe"
+                        :recipe="{
+                            id: recipe.id,
+                            title: recipe.title,
+                            slug: recipe.slug,
+                            description: recipe.description,
+                            ingredients: recipe.ingredients,
+                            instructions: recipe.instructions,
+                            nutritional_info: recipe.nutritional_info
+                        }"
+                        @recipe-modified="() => fetchRecipe()"
+                    />
                 </div>
             </div>
         </div>

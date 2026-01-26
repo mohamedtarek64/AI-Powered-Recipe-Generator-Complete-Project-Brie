@@ -61,7 +61,7 @@ onMounted(fetchCollection);
 
 const removeRecipe = async (recipeId: number) => {
     if (!collection.value || !confirm('Remove this recipe from the collection?')) return;
-    
+
     try {
         await axios.delete(`/collections/${collection.value.id}/recipes/${recipeId}`);
         collection.value.recipes = collection.value.recipes.filter(r => r.id !== recipeId);
@@ -73,7 +73,7 @@ const removeRecipe = async (recipeId: number) => {
 
 const deleteCollection = async () => {
     if (!collection.value || !confirm('Are you sure you want to delete this collection?')) return;
-    
+
     try {
         await axios.delete(`/collections/${collection.value.id}`);
         router.push('/collections');
@@ -93,7 +93,7 @@ const breadcrumbs = computed(() => [
 <template>
     <AppLayout :breadcrumbs="breadcrumbs">
         <Head :title="collection?.name || 'Collection'" />
-        
+
         <!-- Loading State -->
         <div v-if="loading" class="max-w-7xl mx-auto py-12 px-6">
             <div class="h-20 glass rounded-2xl animate-pulse mb-16"></div>
@@ -114,8 +114,13 @@ const breadcrumbs = computed(() => [
                         <p class="text-xl text-gray-500 italic max-w-2xl">{{ collection.description }}</p>
                     </div>
                 </div>
-                
+
                 <div class="flex gap-3">
+                    <a :href="`/collections/${collection.id}/export`" target="_blank">
+                        <Button variant="outline" class="rounded-2xl border-white/10 bg-white/5 text-white hover:bg-white/10 h-12 px-6">
+                            📥 Export PDF
+                        </Button>
+                    </a>
                     <Button variant="outline" @click="deleteCollection" class="rounded-2xl border-rose-500/20 bg-rose-500/5 text-rose-500 hover:bg-rose-500/10 h-12 px-6">
                         Delete Collection
                     </Button>
@@ -125,7 +130,7 @@ const breadcrumbs = computed(() => [
             <div v-if="collection.recipes.length > 0" class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-8">
                 <div v-for="recipe in collection.recipes" :key="recipe.id" class="relative group">
                     <RecipeCard :recipe="recipe" />
-                    <button 
+                    <button
                         @click="removeRecipe(recipe.id)"
                         class="absolute top-4 right-4 w-10 h-10 bg-black/60 backdrop-blur-md rounded-xl flex items-center justify-center text-white opacity-0 group-hover:opacity-100 transition-all hover:bg-rose-500 hover:scale-110 z-10"
                         title="Remove from collection"
